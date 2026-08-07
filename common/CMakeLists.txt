@@ -20,6 +20,7 @@ add_library(common STATIC
     fs.cc
     imglib.cc
     settings.cc
+    scheduler.cc
     prtfile.cc
     mapfile.cc
     debugger.natvis
@@ -47,6 +48,7 @@ add_library(common STATIC
     ../include/common/qvec.hh
     ../include/common/json.hh
     ../include/common/parallel.hh
+    ../include/common/scheduler.hh
     ../include/common/threads.hh
     ../include/common/fs.hh
     ../include/common/imglib.hh

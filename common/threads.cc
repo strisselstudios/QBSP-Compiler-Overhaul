@@ -1,31 +1,23 @@
 #include <common/threads.hh>
 
-#include <memory>
 #include <common/log.hh>
-#include "tbb/global_control.h"
+#include <common/scheduler.hh>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #endif
 
-static std::unique_ptr<tbb::global_control> tbbGlobalControl;
-
-void configureTBB(int maxthreads, bool lowPriority)
+void configureTBB(const int maxthreads, const bool lowPriority)
 {
-    if (tbbGlobalControl) {
+    auto &scheduler_runtime = scheduler::runtime::instance();
+
+    if (!scheduler_runtime.configure(maxthreads)) {
         logging::print("ignoring multiple configureTBB calls\n");
-        // only allow calling once per process, so we can disable threading in test_main.cc
-        // and further attempts to re-enable it will be ignored
         return;
     }
 
-    tbbGlobalControl = std::unique_ptr<tbb::global_control>();
-
     if (maxthreads > 0) {
-        tbbGlobalControl =
-            std::make_unique<tbb::global_control>(tbb::global_control::max_allowed_parallelism, maxthreads);
-
         logging::print("running with {} thread(s)\n", maxthreads);
     }
 
