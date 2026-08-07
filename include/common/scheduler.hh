@@ -11,6 +11,7 @@ See file, 'COPYING', for details.
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 
 #include <tbb/global_control.h>
@@ -36,6 +37,11 @@ public:
 
     [[nodiscard]] bool configured() const noexcept;
     [[nodiscard]] int concurrency() const noexcept;
+
+    [[nodiscard]] std::size_t adaptive_grain(
+        std::size_t item_count,
+        std::size_t minimum_grain = 1,
+        std::size_t target_tasks_per_worker = 8) const noexcept;
 
     tbb::task_arena &arena();
     tbb::task_group_context &context();

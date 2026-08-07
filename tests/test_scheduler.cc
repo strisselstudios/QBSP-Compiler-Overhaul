@@ -40,6 +40,25 @@ TEST(SchedulerRuntime, Lifecycle)
     EXPECT_TRUE(runtime.configured());
     EXPECT_EQ(runtime.concurrency(), requested_concurrency);
 
+    EXPECT_EQ(runtime.adaptive_grain(0), 1u);
+    EXPECT_EQ(runtime.adaptive_grain(1), 1u);
+
+    EXPECT_GE(
+        runtime.adaptive_grain(1000),
+        1u);
+
+    EXPECT_LE(
+        runtime.adaptive_grain(1000),
+        1000u);
+
+    EXPECT_GE(
+        runtime.adaptive_grain(1000, 16),
+        16u);
+
+    EXPECT_EQ(
+        runtime.adaptive_grain(1000, 2000),
+        2000u);
+
     EXPECT_TRUE(runtime.arena().is_active());
     EXPECT_EQ(
         runtime.arena().max_concurrency(),

@@ -1,5 +1,6 @@
 #include <common/scheduler.hh>
 
+#include <algorithm>
 #include <stdexcept>
 
 #include <tbb/info.h>
@@ -63,6 +64,42 @@ bool runtime::configured() const noexcept
 int runtime::concurrency() const noexcept
 {
     return concurrency_;
+}
+
+std::size_t runtime::adaptive_grain(
+    const std::size_t item_count,
+    const std::size_t minimum_grain,
+    const std::size_t target_tasks_per_worker) const noexcept
+{
+    const std::size_t effective_minimum =
+        std::max<std::size_t>(1, minimum_grain);
+
+    if (item_count <= effective_minimum) {
+        return effective_minimum;
+    }
+
+    const std::size_t workers =
+        concurrency_ > 0
+            ? static_cast<std::size_t>(concurrency_)
+            : 1;
+
+    const std::size_t tasks_per_worker =
+        std::max<std::size_t>(1, target_tasks_per_worker);
+
+    std::size_t target_tasks;
+
+    if (workers > item_count / tasks_per_worker) {
+        target_tasks = item_count;
+    } else {
+        target_tasks = workers * tasks_per_worker;
+    }
+
+    target_tasks = std::max<std::size_t>(1, target_tasks);
+
+    const std::size_t calculated_grain =
+        ((item_count - 1) / target_tasks) + 1;
+
+    return std::max(effective_minimum, calculated_grain);
 }
 
 tbb::task_arena &runtime::arena()
