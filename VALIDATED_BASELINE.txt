@@ -1,0 +1,10 @@
+Validated ericw-tools baseline
+Date: 2026-08-06
+Branch: feature/scheduler-runtime
+Commit: c243aa348c9e5a1838bb69cf6c3ff20bebd94a8a
+
+Build: PASS
+Tests: 389 total / 373 passed / 16 skipped / 0 failed
+QBSP: PASS
+VIS: PASS
+LIGHT: PASS
