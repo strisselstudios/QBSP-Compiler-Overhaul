@@ -5,6 +5,26 @@
 
 #include <tbb/info.h>
 
+namespace
+{
+
+void update_max(
+    std::atomic<std::uint64_t> &target,
+    const std::uint64_t value) noexcept
+{
+    auto current = target.load(std::memory_order_relaxed);
+
+    while (current < value &&
+           !target.compare_exchange_weak(
+               current,
+               value,
+               std::memory_order_relaxed,
+               std::memory_order_relaxed)) {
+    }
+}
+
+} // namespace
+
 namespace scheduler
 {
 
@@ -20,7 +40,8 @@ int runtime::resolve_concurrency(const int max_threads)
         max_threads > 0 ? max_threads : tbb::info::default_concurrency();
 
     if (resolved <= 0) {
-        throw std::runtime_error("oneTBB reported invalid default concurrency");
+        throw std::runtime_error(
+            "oneTBB reported invalid default concurrency");
     }
 
     return resolved;
@@ -32,12 +53,14 @@ bool runtime::configure(const int max_threads)
         return false;
     }
 
-    const int requested_concurrency = resolve_concurrency(max_threads);
+    const int requested_concurrency =
+        resolve_concurrency(max_threads);
 
     if (max_threads > 0) {
-        global_control_ = std::make_unique<tbb::global_control>(
-            tbb::global_control::max_allowed_parallelism,
-            static_cast<std::size_t>(max_threads));
+        global_control_ =
+            std::make_unique<tbb::global_control>(
+                tbb::global_control::max_allowed_parallelism,
+                static_cast<std::size_t>(max_threads));
     }
 
     arena_ = std::make_unique<tbb::task_arena>(
@@ -47,8 +70,9 @@ bool runtime::configure(const int max_threads)
 
     arena_->initialize();
 
-    context_ = std::make_unique<tbb::task_group_context>(
-        tbb::task_group_context::isolated);
+    context_ =
+        std::make_unique<tbb::task_group_context>(
+            tbb::task_group_context::isolated);
 
     concurrency_ = arena_->max_concurrency();
     configured_ = true;
@@ -84,7 +108,9 @@ std::size_t runtime::adaptive_grain(
             : 1;
 
     const std::size_t tasks_per_worker =
-        std::max<std::size_t>(1, target_tasks_per_worker);
+        std::max<std::size_t>(
+            1,
+            target_tasks_per_worker);
 
     std::size_t target_tasks;
 
@@ -94,18 +120,22 @@ std::size_t runtime::adaptive_grain(
         target_tasks = workers * tasks_per_worker;
     }
 
-    target_tasks = std::max<std::size_t>(1, target_tasks);
+    target_tasks =
+        std::max<std::size_t>(1, target_tasks);
 
     const std::size_t calculated_grain =
         ((item_count - 1) / target_tasks) + 1;
 
-    return std::max(effective_minimum, calculated_grain);
+    return std::max(
+        effective_minimum,
+        calculated_grain);
 }
 
 tbb::task_arena &runtime::arena()
 {
     if (!arena_) {
-        throw std::logic_error("scheduler runtime has not been configured");
+        throw std::logic_error(
+            "scheduler runtime has not been configured");
     }
 
     return *arena_;
@@ -114,7 +144,8 @@ tbb::task_arena &runtime::arena()
 tbb::task_group_context &runtime::context()
 {
     if (!context_) {
-        throw std::logic_error("scheduler runtime has not been configured");
+        throw std::logic_error(
+            "scheduler runtime has not been configured");
     }
 
     return *context_;
@@ -137,6 +168,128 @@ bool runtime::cancelled() const
 void runtime::reset_cancellation()
 {
     context().reset();
+}
+
+void runtime::record_indexed_call(
+    const std::size_t item_count,
+    const std::size_t grain) noexcept
+{
+    indexed_calls_.fetch_add(
+        1,
+        std::memory_order_relaxed);
+
+    indexed_items_.fetch_add(
+        static_cast<std::uint64_t>(item_count),
+        std::memory_order_relaxed);
+
+    last_indexed_grain_.store(
+        grain,
+        std::memory_order_relaxed);
+}
+
+void runtime::record_indexed_range() noexcept
+{
+    indexed_ranges_.fetch_add(
+        1,
+        std::memory_order_relaxed);
+}
+
+void runtime::record_indexed_elapsed(
+    const std::uint64_t elapsed_ns) noexcept
+{
+    indexed_elapsed_ns_.fetch_add(
+        elapsed_ns,
+        std::memory_order_relaxed);
+
+    update_max(
+        indexed_max_elapsed_ns_,
+        elapsed_ns);
+}
+
+void runtime::record_foreach_call(
+    const std::size_t item_count) noexcept
+{
+    foreach_calls_.fetch_add(
+        1,
+        std::memory_order_relaxed);
+
+    foreach_items_.fetch_add(
+        static_cast<std::uint64_t>(item_count),
+        std::memory_order_relaxed);
+}
+
+void runtime::record_foreach_elapsed(
+    const std::uint64_t elapsed_ns) noexcept
+{
+    foreach_elapsed_ns_.fetch_add(
+        elapsed_ns,
+        std::memory_order_relaxed);
+
+    update_max(
+        foreach_max_elapsed_ns_,
+        elapsed_ns);
+}
+
+metrics_snapshot runtime::metrics() const noexcept
+{
+    metrics_snapshot result;
+
+    result.indexed_calls =
+        indexed_calls_.load(std::memory_order_relaxed);
+
+    result.indexed_items =
+        indexed_items_.load(std::memory_order_relaxed);
+
+    result.indexed_ranges =
+        indexed_ranges_.load(std::memory_order_relaxed);
+
+    result.indexed_elapsed_ns =
+        indexed_elapsed_ns_.load(std::memory_order_relaxed);
+
+    result.indexed_max_elapsed_ns =
+        indexed_max_elapsed_ns_.load(
+            std::memory_order_relaxed);
+
+    result.foreach_calls =
+        foreach_calls_.load(std::memory_order_relaxed);
+
+    result.foreach_items =
+        foreach_items_.load(std::memory_order_relaxed);
+
+    result.foreach_elapsed_ns =
+        foreach_elapsed_ns_.load(std::memory_order_relaxed);
+
+    result.foreach_max_elapsed_ns =
+        foreach_max_elapsed_ns_.load(
+            std::memory_order_relaxed);
+
+    result.last_indexed_grain =
+        last_indexed_grain_.load(
+            std::memory_order_relaxed);
+
+    return result;
+}
+
+void runtime::reset_metrics() noexcept
+{
+    indexed_calls_.store(0, std::memory_order_relaxed);
+    indexed_items_.store(0, std::memory_order_relaxed);
+    indexed_ranges_.store(0, std::memory_order_relaxed);
+    indexed_elapsed_ns_.store(0, std::memory_order_relaxed);
+    indexed_max_elapsed_ns_.store(
+        0,
+        std::memory_order_relaxed);
+
+    foreach_calls_.store(0, std::memory_order_relaxed);
+    foreach_items_.store(0, std::memory_order_relaxed);
+    foreach_elapsed_ns_.store(0, std::memory_order_relaxed);
+    foreach_max_elapsed_ns_.store(
+        0,
+        std::memory_order_relaxed);
+
+    last_indexed_grain_.store(
+        0,
+        std::memory_order_relaxed);
 }
 
 } // namespace scheduler

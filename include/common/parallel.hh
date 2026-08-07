@@ -22,7 +22,9 @@
 #include "common/scheduler.hh"
 
 #include <atomic>
+#include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <type_traits>
 
 #include <tbb/blocked_range.h>
@@ -30,21 +32,27 @@
 #include <tbb/parallel_for_each.h>
 #include <tbb/partitioner.h>
 
-// Parallel extensions to logging.
 namespace logging
 {
 
 template<typename TS, typename TE, typename Body>
-void parallel_for(const TS &start, const TE &end, const Body &func)
+void parallel_for(
+    const TS &start,
+    const TE &end,
+    const Body &func)
 {
-    using index_type = std::common_type_t<TS, TE>;
+    using index_type =
+        std::common_type_t<TS, TE>;
 
     static_assert(
         std::is_integral_v<index_type>,
         "logging::parallel_for requires an integral index range");
 
-    const index_type first = static_cast<index_type>(start);
-    const index_type last = static_cast<index_type>(end);
+    const index_type first =
+        static_cast<index_type>(start);
+
+    const index_type last =
+        static_cast<index_type>(end);
 
     if (last <= first) {
         return;
@@ -53,12 +61,20 @@ void parallel_for(const TS &start, const TE &end, const Body &func)
     const auto length =
         static_cast<std::size_t>(last - first);
 
-    std::atomic<uint64_t> progress{0};
+    std::atomic<std::uint64_t> progress{0};
 
-    auto &runtime = scheduler::runtime::instance();
+    auto &runtime =
+        scheduler::runtime::instance();
 
     const std::size_t grain =
         runtime.adaptive_grain(length);
+
+    runtime.record_indexed_call(
+        length,
+        grain);
+
+    const auto started =
+        std::chrono::steady_clock::now();
 
     runtime.arena().execute([&] {
         tbb::parallel_for(
@@ -67,6 +83,8 @@ void parallel_for(const TS &start, const TE &end, const Body &func)
                 last,
                 static_cast<index_type>(grain)),
             [&](const tbb::blocked_range<index_type> &range) {
+                runtime.record_indexed_range();
+
                 for (index_type it = range.begin();
                      it != range.end();
                      ++it) {
@@ -82,18 +100,40 @@ void parallel_for(const TS &start, const TE &end, const Body &func)
             tbb::auto_partitioner{});
     });
 
+    const auto finished =
+        std::chrono::steady_clock::now();
+
+    const auto elapsed =
+        std::chrono::duration_cast<
+            std::chrono::nanoseconds>(
+                finished - started);
+
+    runtime.record_indexed_elapsed(
+        static_cast<std::uint64_t>(
+            elapsed.count()));
+
     percent(
         progress.load(std::memory_order_relaxed),
         length);
 }
 
 template<typename Container, typename Body>
-void parallel_for_each(Container &container, const Body &func)
+void parallel_for_each(
+    Container &container,
+    const Body &func)
 {
-    const auto length = std::size(container);
-    std::atomic<uint64_t> progress{0};
+    const auto length =
+        std::size(container);
 
-    auto &runtime = scheduler::runtime::instance();
+    std::atomic<std::uint64_t> progress{0};
+
+    auto &runtime =
+        scheduler::runtime::instance();
+
+    runtime.record_foreach_call(length);
+
+    const auto started =
+        std::chrono::steady_clock::now();
 
     runtime.arena().execute([&] {
         tbb::parallel_for_each(
@@ -109,18 +149,40 @@ void parallel_for_each(Container &container, const Body &func)
             });
     });
 
+    const auto finished =
+        std::chrono::steady_clock::now();
+
+    const auto elapsed =
+        std::chrono::duration_cast<
+            std::chrono::nanoseconds>(
+                finished - started);
+
+    runtime.record_foreach_elapsed(
+        static_cast<std::uint64_t>(
+            elapsed.count()));
+
     percent(
         progress.load(std::memory_order_relaxed),
         length);
 }
 
 template<typename Container, typename Body>
-void parallel_for_each(const Container &container, const Body &func)
+void parallel_for_each(
+    const Container &container,
+    const Body &func)
 {
-    const auto length = std::size(container);
-    std::atomic<uint64_t> progress{0};
+    const auto length =
+        std::size(container);
 
-    auto &runtime = scheduler::runtime::instance();
+    std::atomic<std::uint64_t> progress{0};
+
+    auto &runtime =
+        scheduler::runtime::instance();
+
+    runtime.record_foreach_call(length);
+
+    const auto started =
+        std::chrono::steady_clock::now();
 
     runtime.arena().execute([&] {
         tbb::parallel_for_each(
@@ -135,6 +197,18 @@ void parallel_for_each(const Container &container, const Body &func)
                 func(item);
             });
     });
+
+    const auto finished =
+        std::chrono::steady_clock::now();
+
+    const auto elapsed =
+        std::chrono::duration_cast<
+            std::chrono::nanoseconds>(
+                finished - started);
+
+    runtime.record_foreach_elapsed(
+        static_cast<std::uint64_t>(
+            elapsed.count()));
 
     percent(
         progress.load(std::memory_order_relaxed),

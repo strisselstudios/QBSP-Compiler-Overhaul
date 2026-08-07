@@ -100,4 +100,60 @@ TEST(SchedulerRuntime, Lifecycle)
     runtime.reset_cancellation();
 
     EXPECT_FALSE(runtime.cancelled());
+
+    runtime.reset_metrics();
+
+    auto metrics = runtime.metrics();
+
+    EXPECT_EQ(metrics.indexed_calls, 0u);
+    EXPECT_EQ(metrics.indexed_items, 0u);
+    EXPECT_EQ(metrics.indexed_ranges, 0u);
+    EXPECT_EQ(metrics.indexed_elapsed_ns, 0u);
+    EXPECT_EQ(metrics.foreach_calls, 0u);
+    EXPECT_EQ(metrics.foreach_items, 0u);
+
+    runtime.record_indexed_call(100, 8);
+    runtime.record_indexed_range();
+    runtime.record_indexed_range();
+    runtime.record_indexed_elapsed(1000);
+
+    runtime.record_foreach_call(25);
+    runtime.record_foreach_elapsed(500);
+
+    metrics = runtime.metrics();
+
+    EXPECT_EQ(metrics.indexed_calls, 1u);
+    EXPECT_EQ(metrics.indexed_items, 100u);
+    EXPECT_EQ(metrics.indexed_ranges, 2u);
+    EXPECT_EQ(metrics.indexed_elapsed_ns, 1000u);
+    EXPECT_EQ(metrics.indexed_max_elapsed_ns, 1000u);
+    EXPECT_EQ(metrics.last_indexed_grain, 8u);
+
+    EXPECT_EQ(metrics.foreach_calls, 1u);
+    EXPECT_EQ(metrics.foreach_items, 25u);
+    EXPECT_EQ(metrics.foreach_elapsed_ns, 500u);
+    EXPECT_EQ(metrics.foreach_max_elapsed_ns, 500u);
+
+    runtime.record_indexed_elapsed(250);
+    runtime.record_indexed_elapsed(2000);
+
+    metrics = runtime.metrics();
+
+    EXPECT_EQ(metrics.indexed_elapsed_ns, 3250u);
+    EXPECT_EQ(metrics.indexed_max_elapsed_ns, 2000u);
+
+    runtime.reset_metrics();
+
+    metrics = runtime.metrics();
+
+    EXPECT_EQ(metrics.indexed_calls, 0u);
+    EXPECT_EQ(metrics.indexed_items, 0u);
+    EXPECT_EQ(metrics.indexed_ranges, 0u);
+    EXPECT_EQ(metrics.indexed_elapsed_ns, 0u);
+    EXPECT_EQ(metrics.indexed_max_elapsed_ns, 0u);
+    EXPECT_EQ(metrics.last_indexed_grain, 0u);
+    EXPECT_EQ(metrics.foreach_calls, 0u);
+    EXPECT_EQ(metrics.foreach_items, 0u);
+    EXPECT_EQ(metrics.foreach_elapsed_ns, 0u);
+    EXPECT_EQ(metrics.foreach_max_elapsed_ns, 0u);
 }

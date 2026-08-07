@@ -11,7 +11,9 @@ See file, 'COPYING', for details.
 
 #pragma once
 
+#include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 
 #include <tbb/global_control.h>
@@ -20,6 +22,22 @@ See file, 'COPYING', for details.
 
 namespace scheduler
 {
+
+struct metrics_snapshot final
+{
+    std::uint64_t indexed_calls{0};
+    std::uint64_t indexed_items{0};
+    std::uint64_t indexed_ranges{0};
+    std::uint64_t indexed_elapsed_ns{0};
+    std::uint64_t indexed_max_elapsed_ns{0};
+
+    std::uint64_t foreach_calls{0};
+    std::uint64_t foreach_items{0};
+    std::uint64_t foreach_elapsed_ns{0};
+    std::uint64_t foreach_max_elapsed_ns{0};
+
+    std::size_t last_indexed_grain{0};
+};
 
 class runtime final
 {
@@ -48,8 +66,31 @@ public:
 
     bool cancel();
     [[nodiscard]] bool cancelled() const;
-
     void reset_cancellation();
+
+    void record_indexed_call(
+        std::size_t item_count,
+        std::size_t grain) noexcept;
+
+    void record_indexed_range() noexcept;
+
+    void record_indexed_elapsed(
+        std::uint64_t elapsed_ns) noexcept;
+
+    void record_foreach_call(
+        std::size_t item_count) noexcept;
+
+    void record_foreach_elapsed(
+        std::uint64_t elapsed_ns) noexcept;
+
+    [[nodiscard]] metrics_snapshot metrics() const noexcept;
+
+    /**
+     * Reset instrumentation counters.
+     *
+     * Call only when no instrumented scheduler work is active.
+     */
+    void reset_metrics() noexcept;
 
 private:
     runtime() = default;
@@ -61,6 +102,19 @@ private:
     std::unique_ptr<tbb::global_control> global_control_;
     std::unique_ptr<tbb::task_arena> arena_;
     std::unique_ptr<tbb::task_group_context> context_;
+
+    std::atomic<std::uint64_t> indexed_calls_{0};
+    std::atomic<std::uint64_t> indexed_items_{0};
+    std::atomic<std::uint64_t> indexed_ranges_{0};
+    std::atomic<std::uint64_t> indexed_elapsed_ns_{0};
+    std::atomic<std::uint64_t> indexed_max_elapsed_ns_{0};
+
+    std::atomic<std::uint64_t> foreach_calls_{0};
+    std::atomic<std::uint64_t> foreach_items_{0};
+    std::atomic<std::uint64_t> foreach_elapsed_ns_{0};
+    std::atomic<std::uint64_t> foreach_max_elapsed_ns_{0};
+
+    std::atomic<std::size_t> last_indexed_grain_{0};
 };
 
 } // namespace scheduler
