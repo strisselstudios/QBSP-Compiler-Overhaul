@@ -43,3 +43,20 @@ copy_mingw_dlls(tests)
 add_loader_path_to_rpath(tests)
 
 add_definitions(-DHAVE_EMBREE)
+
+# Scheduler runtime tests are isolated in their own process because the
+# scheduler runtime is intentionally configured once per process.
+add_executable(scheduler_tests
+        test_scheduler.cc)
+
+target_link_libraries(scheduler_tests
+        common
+        GTest::gtest_main)
+
+add_custom_command(TARGET scheduler_tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:TBB::tbb>" "$<TARGET_FILE_DIR:scheduler_tests>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:TBB::tbbmalloc>" "$<TARGET_FILE_DIR:scheduler_tests>"
+)
+
+copy_mingw_dlls(scheduler_tests)
+add_loader_path_to_rpath(scheduler_tests)

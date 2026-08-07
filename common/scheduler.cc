@@ -13,18 +13,25 @@ runtime &runtime::instance()
     return scheduler_runtime;
 }
 
+int runtime::resolve_concurrency(const int max_threads)
+{
+    const int resolved =
+        max_threads > 0 ? max_threads : tbb::info::default_concurrency();
+
+    if (resolved <= 0) {
+        throw std::runtime_error("oneTBB reported invalid default concurrency");
+    }
+
+    return resolved;
+}
+
 bool runtime::configure(const int max_threads)
 {
     if (configured_) {
         return false;
     }
 
-    const int requested_concurrency =
-        max_threads > 0 ? max_threads : tbb::info::default_concurrency();
-
-    if (requested_concurrency <= 0) {
-        throw std::runtime_error("oneTBB reported invalid default concurrency");
-    }
+    const int requested_concurrency = resolve_concurrency(max_threads);
 
     if (max_threads > 0) {
         global_control_ = std::make_unique<tbb::global_control>(

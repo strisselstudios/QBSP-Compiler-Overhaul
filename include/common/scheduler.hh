@@ -25,6 +25,8 @@ class runtime final
 public:
     static runtime &instance();
 
+    [[nodiscard]] static int resolve_concurrency(int max_threads);
+
     runtime(const runtime &) = delete;
     runtime &operator=(const runtime &) = delete;
     runtime(runtime &&) = delete;
