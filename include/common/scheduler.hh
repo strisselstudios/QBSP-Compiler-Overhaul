@@ -37,6 +37,14 @@ struct metrics_snapshot final
     std::uint64_t foreach_max_elapsed_ns{0};
 
     std::size_t last_indexed_grain{0};
+
+    std::uint64_t arena_entries{0};
+    std::uint64_t arena_exits{0};
+    std::uint64_t worker_entries{0};
+    std::uint64_t worker_exits{0};
+
+    std::size_t active_arena_threads{0};
+    std::size_t peak_active_arena_threads{0};
 };
 
 class runtime final
@@ -85,16 +93,13 @@ public:
 
     [[nodiscard]] metrics_snapshot metrics() const noexcept;
 
-    /**
-     * Reset instrumentation counters.
-     *
-     * Call only when no instrumented scheduler work is active.
-     */
     void reset_metrics() noexcept;
 
 private:
+    class arena_observer;
+
     runtime() = default;
-    ~runtime() = default;
+    ~runtime();
 
     bool configured_{false};
     int concurrency_{0};
@@ -102,6 +107,7 @@ private:
     std::unique_ptr<tbb::global_control> global_control_;
     std::unique_ptr<tbb::task_arena> arena_;
     std::unique_ptr<tbb::task_group_context> context_;
+    std::unique_ptr<arena_observer> observer_;
 
     std::atomic<std::uint64_t> indexed_calls_{0};
     std::atomic<std::uint64_t> indexed_items_{0};
@@ -115,6 +121,14 @@ private:
     std::atomic<std::uint64_t> foreach_max_elapsed_ns_{0};
 
     std::atomic<std::size_t> last_indexed_grain_{0};
+
+    std::atomic<std::uint64_t> arena_entries_{0};
+    std::atomic<std::uint64_t> arena_exits_{0};
+    std::atomic<std::uint64_t> worker_entries_{0};
+    std::atomic<std::uint64_t> worker_exits_{0};
+
+    std::atomic<std::size_t> active_arena_threads_{0};
+    std::atomic<std::size_t> peak_active_arena_threads_{0};
 };
 
 } // namespace scheduler

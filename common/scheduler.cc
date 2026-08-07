@@ -4,13 +4,15 @@
 #include <stdexcept>
 
 #include <tbb/info.h>
+#include <tbb/task_scheduler_observer.h>
 
 namespace
 {
 
+template<typename T>
 void update_max(
-    std::atomic<std::uint64_t> &target,
-    const std::uint64_t value) noexcept
+    std::atomic<T> &target,
+    const T value) noexcept
 {
     auto current = target.load(std::memory_order_relaxed);
 
@@ -28,16 +30,82 @@ void update_max(
 namespace scheduler
 {
 
+class runtime::arena_observer final
+    : public tbb::task_scheduler_observer
+{
+public:
+    arena_observer(
+        runtime &owner,
+        tbb::task_arena &arena)
+        : tbb::task_scheduler_observer(arena),
+          owner_(owner)
+    {
+    }
+
+    void on_scheduler_entry(
+        const bool is_worker) override
+    {
+        owner_.arena_entries_.fetch_add(
+            1,
+            std::memory_order_relaxed);
+
+        if (is_worker) {
+            owner_.worker_entries_.fetch_add(
+                1,
+                std::memory_order_relaxed);
+        }
+
+        const std::size_t active =
+            owner_.active_arena_threads_.fetch_add(
+                1,
+                std::memory_order_relaxed) + 1;
+
+        update_max(
+            owner_.peak_active_arena_threads_,
+            active);
+    }
+
+    void on_scheduler_exit(
+        const bool is_worker) override
+    {
+        owner_.arena_exits_.fetch_add(
+            1,
+            std::memory_order_relaxed);
+
+        if (is_worker) {
+            owner_.worker_exits_.fetch_add(
+                1,
+                std::memory_order_relaxed);
+        }
+
+        owner_.active_arena_threads_.fetch_sub(
+            1,
+            std::memory_order_relaxed);
+    }
+
+private:
+    runtime &owner_;
+};
+
 runtime &runtime::instance()
 {
     static runtime scheduler_runtime;
     return scheduler_runtime;
 }
 
+runtime::~runtime()
+{
+    if (observer_) {
+        observer_->observe(false);
+    }
+}
+
 int runtime::resolve_concurrency(const int max_threads)
 {
     const int resolved =
-        max_threads > 0 ? max_threads : tbb::info::default_concurrency();
+        max_threads > 0
+            ? max_threads
+            : tbb::info::default_concurrency();
 
     if (resolved <= 0) {
         throw std::runtime_error(
@@ -73,6 +141,13 @@ bool runtime::configure(const int max_threads)
     context_ =
         std::make_unique<tbb::task_group_context>(
             tbb::task_group_context::isolated);
+
+    observer_ =
+        std::make_unique<arena_observer>(
+            *this,
+            *arena_);
+
+    observer_->observe(true);
 
     concurrency_ = arena_->max_concurrency();
     configured_ = true;
@@ -117,7 +192,8 @@ std::size_t runtime::adaptive_grain(
     if (workers > item_count / tasks_per_worker) {
         target_tasks = item_count;
     } else {
-        target_tasks = workers * tasks_per_worker;
+        target_tasks =
+            workers * tasks_per_worker;
     }
 
     target_tasks =
@@ -267,6 +343,26 @@ metrics_snapshot runtime::metrics() const noexcept
         last_indexed_grain_.load(
             std::memory_order_relaxed);
 
+    result.arena_entries =
+        arena_entries_.load(std::memory_order_relaxed);
+
+    result.arena_exits =
+        arena_exits_.load(std::memory_order_relaxed);
+
+    result.worker_entries =
+        worker_entries_.load(std::memory_order_relaxed);
+
+    result.worker_exits =
+        worker_exits_.load(std::memory_order_relaxed);
+
+    result.active_arena_threads =
+        active_arena_threads_.load(
+            std::memory_order_relaxed);
+
+    result.peak_active_arena_threads =
+        peak_active_arena_threads_.load(
+            std::memory_order_relaxed);
+
     return result;
 }
 
@@ -289,6 +385,19 @@ void runtime::reset_metrics() noexcept
 
     last_indexed_grain_.store(
         0,
+        std::memory_order_relaxed);
+
+    arena_entries_.store(0, std::memory_order_relaxed);
+    arena_exits_.store(0, std::memory_order_relaxed);
+    worker_entries_.store(0, std::memory_order_relaxed);
+    worker_exits_.store(0, std::memory_order_relaxed);
+
+    const std::size_t active =
+        active_arena_threads_.load(
+            std::memory_order_relaxed);
+
+    peak_active_arena_threads_.store(
+        active,
         std::memory_order_relaxed);
 }
 

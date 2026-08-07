@@ -7,6 +7,7 @@
 
 #include <tbb/info.h>
 #include <tbb/task_group.h>
+#include <tbb/parallel_for.h>
 
 TEST(SchedulerRuntime, Lifecycle)
 {
@@ -156,4 +157,51 @@ TEST(SchedulerRuntime, Lifecycle)
     EXPECT_EQ(metrics.foreach_items, 0u);
     EXPECT_EQ(metrics.foreach_elapsed_ns, 0u);
     EXPECT_EQ(metrics.foreach_max_elapsed_ns, 0u);
+
+    // Verify that the observer attached to the persistent arena sees
+    // actual arena participation.
+    runtime.reset_metrics();
+
+    std::atomic<int> observed_work{0};
+
+    runtime.arena().execute([&] {
+        tbb::parallel_for(
+            0,
+            4096,
+            [&](const int) {
+                observed_work.fetch_add(
+                    1,
+                    std::memory_order_relaxed);
+            });
+    });
+
+    const auto observed_metrics = runtime.metrics();
+
+    EXPECT_EQ(
+        observed_work.load(std::memory_order_relaxed),
+        4096);
+
+    EXPECT_GE(
+        observed_metrics.arena_entries,
+        1u);
+
+    EXPECT_GE(
+        observed_metrics.peak_active_arena_threads,
+        1u);
+
+    EXPECT_LE(
+        observed_metrics.peak_active_arena_threads,
+        static_cast<std::size_t>(requested_concurrency));
+
+    EXPECT_LE(
+        observed_metrics.worker_entries,
+        observed_metrics.arena_entries);
+
+    EXPECT_LE(
+        observed_metrics.worker_exits,
+        observed_metrics.arena_exits);
+
+    EXPECT_LE(
+        observed_metrics.active_arena_threads,
+        observed_metrics.peak_active_arena_threads);
 }
