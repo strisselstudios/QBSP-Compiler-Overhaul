@@ -45,6 +45,13 @@ struct metrics_snapshot final
 
     std::size_t active_arena_threads{0};
     std::size_t peak_active_arena_threads{0};
+
+    std::uint64_t parallel_decisions{0};
+    std::uint64_t parallel_accepted{0};
+    std::uint64_t parallel_rejected{0};
+
+    std::uint64_t last_estimated_cost{0};
+    std::uint64_t last_parallel_threshold{0};
 };
 
 class runtime final
@@ -68,6 +75,14 @@ public:
         std::size_t item_count,
         std::size_t minimum_grain = 1,
         std::size_t target_tasks_per_worker = 8) const noexcept;
+
+    [[nodiscard]] static std::uint64_t estimate_cost(
+        std::uint64_t item_count,
+        std::uint64_t cost_per_item) noexcept;
+
+    [[nodiscard]] bool should_parallelize(
+        std::uint64_t estimated_cost,
+        std::uint64_t parallel_threshold) noexcept;
 
     tbb::task_arena &arena();
     tbb::task_group_context &context();
@@ -129,6 +144,13 @@ private:
 
     std::atomic<std::size_t> active_arena_threads_{0};
     std::atomic<std::size_t> peak_active_arena_threads_{0};
+
+    std::atomic<std::uint64_t> parallel_decisions_{0};
+    std::atomic<std::uint64_t> parallel_accepted_{0};
+    std::atomic<std::uint64_t> parallel_rejected_{0};
+
+    std::atomic<std::uint64_t> last_estimated_cost_{0};
+    std::atomic<std::uint64_t> last_parallel_threshold_{0};
 };
 
 } // namespace scheduler

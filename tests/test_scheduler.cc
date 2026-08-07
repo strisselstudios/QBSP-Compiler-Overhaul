@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <limits>
 
 #include <gtest/gtest.h>
 
@@ -157,6 +158,80 @@ TEST(SchedulerRuntime, Lifecycle)
     EXPECT_EQ(metrics.foreach_items, 0u);
     EXPECT_EQ(metrics.foreach_elapsed_ns, 0u);
     EXPECT_EQ(metrics.foreach_max_elapsed_ns, 0u);
+
+    // Cost model.
+    EXPECT_EQ(
+        scheduler::runtime::estimate_cost(0, 100),
+        0u);
+
+    EXPECT_EQ(
+        scheduler::runtime::estimate_cost(100, 0),
+        0u);
+
+    EXPECT_EQ(
+        scheduler::runtime::estimate_cost(100, 25),
+        2500u);
+
+    EXPECT_EQ(
+        scheduler::runtime::estimate_cost(
+            std::numeric_limits<std::uint64_t>::max(),
+            2),
+        std::numeric_limits<std::uint64_t>::max());
+
+    runtime.reset_metrics();
+
+    const std::uint64_t threshold = 1000;
+
+    EXPECT_FALSE(
+        runtime.should_parallelize(
+            999,
+            threshold));
+
+    if (requested_concurrency > 1) {
+        EXPECT_TRUE(
+            runtime.should_parallelize(
+                1000,
+                threshold));
+
+        EXPECT_TRUE(
+            runtime.should_parallelize(
+                100000,
+                threshold));
+    } else {
+        EXPECT_FALSE(
+            runtime.should_parallelize(
+                1000,
+                threshold));
+
+        EXPECT_FALSE(
+            runtime.should_parallelize(
+                100000,
+                threshold));
+    }
+
+    EXPECT_FALSE(
+        runtime.should_parallelize(
+            100000,
+            0));
+
+    metrics = runtime.metrics();
+
+    EXPECT_EQ(
+        metrics.parallel_decisions,
+        4u);
+
+    EXPECT_EQ(
+        metrics.parallel_accepted +
+            metrics.parallel_rejected,
+        metrics.parallel_decisions);
+
+    EXPECT_EQ(
+        metrics.last_estimated_cost,
+        100000u);
+
+    EXPECT_EQ(
+        metrics.last_parallel_threshold,
+        0u);
 
     // Verify that the observer attached to the persistent arena sees
     // actual arena participation.

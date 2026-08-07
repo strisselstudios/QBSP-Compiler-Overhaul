@@ -1,6 +1,7 @@
 #include <common/scheduler.hh>
 
 #include <algorithm>
+#include <limits>
 #include <stdexcept>
 
 #include <tbb/info.h>
@@ -207,6 +208,59 @@ std::size_t runtime::adaptive_grain(
         calculated_grain);
 }
 
+std::uint64_t runtime::estimate_cost(
+    const std::uint64_t item_count,
+    const std::uint64_t cost_per_item) noexcept
+{
+    if (item_count == 0 || cost_per_item == 0) {
+        return 0;
+    }
+
+    constexpr auto maximum =
+        std::numeric_limits<std::uint64_t>::max();
+
+    if (item_count > maximum / cost_per_item) {
+        return maximum;
+    }
+
+    return item_count * cost_per_item;
+}
+
+bool runtime::should_parallelize(
+    const std::uint64_t estimated_cost,
+    const std::uint64_t parallel_threshold) noexcept
+{
+    parallel_decisions_.fetch_add(
+        1,
+        std::memory_order_relaxed);
+
+    last_estimated_cost_.store(
+        estimated_cost,
+        std::memory_order_relaxed);
+
+    last_parallel_threshold_.store(
+        parallel_threshold,
+        std::memory_order_relaxed);
+
+    const bool accepted =
+        configured_ &&
+        concurrency_ > 1 &&
+        parallel_threshold > 0 &&
+        estimated_cost >= parallel_threshold;
+
+    if (accepted) {
+        parallel_accepted_.fetch_add(
+            1,
+            std::memory_order_relaxed);
+    } else {
+        parallel_rejected_.fetch_add(
+            1,
+            std::memory_order_relaxed);
+    }
+
+    return accepted;
+}
+
 tbb::task_arena &runtime::arena()
 {
     if (!arena_) {
@@ -363,6 +417,26 @@ metrics_snapshot runtime::metrics() const noexcept
         peak_active_arena_threads_.load(
             std::memory_order_relaxed);
 
+    result.parallel_decisions =
+        parallel_decisions_.load(
+            std::memory_order_relaxed);
+
+    result.parallel_accepted =
+        parallel_accepted_.load(
+            std::memory_order_relaxed);
+
+    result.parallel_rejected =
+        parallel_rejected_.load(
+            std::memory_order_relaxed);
+
+    result.last_estimated_cost =
+        last_estimated_cost_.load(
+            std::memory_order_relaxed);
+
+    result.last_parallel_threshold =
+        last_parallel_threshold_.load(
+            std::memory_order_relaxed);
+
     return result;
 }
 
@@ -398,6 +472,26 @@ void runtime::reset_metrics() noexcept
 
     peak_active_arena_threads_.store(
         active,
+        std::memory_order_relaxed);
+
+    parallel_decisions_.store(
+        0,
+        std::memory_order_relaxed);
+
+    parallel_accepted_.store(
+        0,
+        std::memory_order_relaxed);
+
+    parallel_rejected_.store(
+        0,
+        std::memory_order_relaxed);
+
+    last_estimated_cost_.store(
+        0,
+        std::memory_order_relaxed);
+
+    last_parallel_threshold_.store(
+        0,
         std::memory_order_relaxed);
 }
 
