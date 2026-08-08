@@ -33,6 +33,8 @@
 #include <list>
 #include <atomic>
 
+#include <qbsp/recursion_profile.hh>
+
 #include "tbb/task_group.h"
 
 // if a brush just barely pokes onto the other side,
@@ -1172,9 +1174,35 @@ BuildTree_r
 Called in parallel.
 ==================
 */
-static void BuildTree_r(tree_t &tree, int level, node_t *node, bspbrush_t::container brushes, tree_split_t split_type,
-    bspstats_t &stats, logging::percent_clock &clock)
+static void BuildTree_r(
+    tree_t &tree,
+    int level,
+    node_t *node,
+    bspbrush_t::container brushes,
+    tree_split_t split_type,
+    bspstats_t &stats,
+    logging::percent_clock &clock,
+    qbsp_profile::recursion_metrics *profile)
 {
+    const std::size_t input_brush_count = brushes.size();
+
+    qbsp_profile::clock::time_point subtree_started{};
+
+    if (profile) {
+        subtree_started = qbsp_profile::clock::now();
+
+        std::size_t input_side_count = 0;
+
+        for (const auto &brush : brushes) {
+            input_side_count += brush->sides.size();
+        }
+
+        profile->record_entry(
+            static_cast<std::size_t>(level),
+            input_brush_count,
+            input_side_count);
+    }
+
     // find the best plane to use as a splitter
     auto *bestside = SelectSplitPlane(brushes, node, split_type, stats);
 
@@ -1186,6 +1214,21 @@ static void BuildTree_r(tree_t &tree, int level, node_t *node, bspbrush_t::conta
 
         stats.c_leafs++;
         LeafNode(node, std::move(brushes), stats);
+
+        if (profile) {
+            profile->record_leaf();
+
+            const auto elapsed =
+                qbsp_profile::elapsed_ns(subtree_started);
+
+            profile->record_local(
+                input_brush_count,
+                elapsed);
+
+            profile->record_subtree(
+                input_brush_count,
+                elapsed);
+        }
 
         return;
     }
@@ -1228,15 +1271,31 @@ static void BuildTree_r(tree_t &tree, int level, node_t *node, bspbrush_t::conta
         nodedata->children[1]->volume = std::move(children_volumes[1]);
     }
 
+    if (profile) {
+        profile->record_split(
+            children[0].size(),
+            children[1].size());
+
+        profile->record_local(
+            input_brush_count,
+            qbsp_profile::elapsed_ns(subtree_started));
+    }
+
     // recursively process children
     tbb::task_group g;
     g.run([&]() {
-        BuildTree_r(tree, level + 1, nodedata->children[0], std::move(children[0]), split_type, stats, clock);
+        BuildTree_r(tree, level + 1, nodedata->children[0], std::move(children[0]), split_type, stats, clock, profile);
     });
     g.run([&]() {
-        BuildTree_r(tree, level + 1, nodedata->children[1], std::move(children[1]), split_type, stats, clock);
+        BuildTree_r(tree, level + 1, nodedata->children[1], std::move(children[1]), split_type, stats, clock, profile);
     });
     g.wait();
+
+    if (profile) {
+        profile->record_subtree(
+            input_brush_count,
+            qbsp_profile::elapsed_ns(subtree_started));
+    }
 }
 
 struct brushbsp_input_stats_t : logging::stat_tracker_t
@@ -1337,9 +1396,19 @@ void BrushBSP(tree_t &tree, mapentity_t &entity, const bspbrush_t::container &br
 
     bspstats_t stats{};
 
+    qbsp_profile::recursion_metrics recursion_profile;
+    auto *profile =
+        qbsp_profile::enabled()
+            ? &recursion_profile
+            : nullptr;
+
     {
         logging::percent_clock clock;
-        BuildTree_r(tree, 0, tree.headnode, brushlist, split_type, stats, clock);
+        BuildTree_r(tree, 0, tree.headnode, brushlist, split_type, stats, clock, profile);
+    }
+
+    if (profile) {
+        profile->print();
     }
 
     stats.print_stats();
